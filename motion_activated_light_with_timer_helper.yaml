@@ -1,0 +1,103 @@
+blueprint:
+  name: Motion activated light with timer helper
+  description: Turn on light when motion is detected and use a timer helper to turn it off
+  domain: automation
+  source_url: https://github.com/DaGolle/HomeAssistantBlueprints/motion_activated_light_with_timer_helper.yaml
+  input:
+    motion_entity:
+      name: Motion Sensor
+      description: The motion sensor that will turn on the light
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: motion
+          multiple: false
+    light_entity:
+      name: Light
+      selector:
+        entity:
+          domain: light
+    timer_entity:
+      name: Timer
+      description: Timer that will control how longs the lights stay on after last motion is detected.
+      selector:
+        entity:
+          domain: timer
+
+# only allow 1 trigger at a time
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input motion_entity
+    from: "off"
+    to: "on"
+    id: "motion_on"
+  - platform: state
+    entity_id: !input motion_entity
+    from: "on"
+    to: "off"
+    id: "motion_off"
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input timer_entity
+    id: 'timer_finished'
+  - platform: state
+    entity_id: !input light_entity
+    from: "off"
+    to: "on"
+    id: "light_on"
+  - platform: state
+    entity_id: !input light_entity
+    from: "on"
+    to: "off"
+    id: "light_off"
+
+action:
+  - choose:
+    # turn light on when motion detected
+    # cancel timer in case it was running from a previous event
+    - conditions:
+      - condition: trigger
+        id: "motion_on"
+      sequence:
+        - service: light.turn_on
+          target:
+            entity_id: !input light_entity
+        - service: timer.cancel
+          target:
+            entity_id: timer_entity
+    # wait until motion is no longer detected to start timer
+    - conditions:
+      - condition: trigger
+        id: "motion_off"
+      sequence:
+        - service: timer.start
+          target:
+            entity_id: timer_entity
+    # turn light off when timer runs out
+    - conditions:
+      - condition: trigger
+        id: "timer_finished"
+      sequence:
+        - service: light.turn_off
+          target:
+            entity_id: !input light_entity
+    # start timer when light is turned on (manually)
+    - conditions:
+      - condition: trigger
+        id: "light_on"
+      sequence:
+        - service: timer.start
+          target:
+            entity_id: timer_entity
+    # cancel timer when light is turned off (manually)
+    - conditions:
+      - condition: trigger
+        id: "light_off"
+      sequence:
+        - service: timer.cancel
+          target:
+            entity_id: timer_entity

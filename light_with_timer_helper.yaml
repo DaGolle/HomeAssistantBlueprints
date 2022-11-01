@@ -1,0 +1,65 @@
+blueprint:
+  name: Light with timer helper
+  description: Turn on light and use a timer helper to turn it off
+  domain: automation
+  source_url: https://github.com/DaGolle/HomeAssistantBlueprints/light_with_timer_helper.yaml
+  input:
+    light_entity:
+      name: Light
+      selector:
+        entity:
+          domain: light
+    timer_entity:
+      name: Timer
+      description: Timer that will control how longs the light stays on after last motion is detected.
+      selector:
+        entity:
+          domain: timer
+
+# only allow 1 trigger at a time
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input timer_entity
+    id: 'timer_finished'
+  - platform: state
+    entity_id: !input light_entity
+    from: "off"
+    to: "on"
+    id: "light_on"
+  - platform: state
+    entity_id: !input light_entity
+    from: "on"
+    to: "off"
+    id: "light_off"
+
+action:
+  - choose:
+    # turn light off when timer runs out
+    - conditions:
+      - condition: trigger
+        id: "timer_finished"
+      sequence:
+        - service: light.turn_off
+          target:
+            entity_id: !input light_entity
+    # start timer when light is turned on
+    - conditions:
+      - condition: trigger
+        id: "light_on"
+      sequence:
+        - service: timer.start
+          target:
+            entity_id: !input timer_entity
+    # cancel timer when light is turned off
+    - conditions:
+      - condition: trigger
+        id: "light_off"
+      sequence:
+        - service: timer.cancel
+          target:
+            entity_id: !input timer_entity

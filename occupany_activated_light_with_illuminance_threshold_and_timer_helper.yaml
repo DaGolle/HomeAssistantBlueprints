@@ -1,0 +1,138 @@
+blueprint:
+  name: Occupancy activated light with illuminance threshold and timer helper
+  description: Turn on light when occupancy is detected and illuminance is below set threshold, turn light off when timer runs out
+  domain: automation
+  source_url: https://github.com/DaGolle/HomeAssistantBlueprints/occupancy_activated_light_with_illuminance_threshold_and_timer_helper.yaml
+  input:
+    occupancy_entity:
+      name: Occupancy Sensor
+      description: The occupancy sensor that will turn on the light
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: occupancy
+          multiple: false
+    light_entity:
+      name: Light
+      selector:
+        entity:
+          domain: light
+    illuminance_entity:
+      name: Illuminance
+      description: The illuminance sensor to use
+      selector:
+        entity:
+          domain: sensor
+          device_class: illuminance
+          multiple: false
+    illuminance_value:
+      name: Illuminance threshold
+      description: When the illuminance measured by the sensor is below the illuminance threshold, this will turn on the light
+      default: 6
+      selector:
+        number:
+          min: 2.0
+          max: 3000.0
+          mode: box
+          unit_of_measurement: lx
+          step: 1.0
+    timer_entity:
+      name: Timer
+      description: Timer that will control how longs the lights stay on after last motion is detected.
+      selector:
+        entity:
+          domain: timer
+
+# only allow 1 trigger at a time
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input occupancy_entity
+    from: "off"
+    to: "on"
+    id: "occupancy_on"
+  - platform: state
+    entity_id: !input occupancy_entity
+    from: "on"
+    to: "off"
+    id: "occupancy_off"
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input timer_entity
+    id: 'timer_finished'
+  - platform: state
+    entity_id: !input light_entity
+    from: "off"
+    to: "on"
+    id: "light_on"
+  - platform: state
+    entity_id: !input light_entity
+    from: "on"
+    to: "off"
+    id: "light_off"
+
+action:
+  - choose:
+    # turn light on when occupancy detected and dark,
+    # cancel timer in case it was running from a previous event
+    - conditions:
+      - condition:
+        - condition: trigger
+          id: "occupancy_on"
+        - condition: numeric_state
+          entity_id: !input illuminance_entity
+          below: !input illuminance_value
+      sequence:
+        - service: light.turn_on
+          target:
+            entity_id: !input light_entity
+        - service: timer.cancel
+          target:
+            entity_id: !input timer_entity
+    # cancel timer if light was already on (and occupancy detected again)
+    - conditions:
+      - condition:
+        - condition: trigger
+          id: "occupancy_on"
+        - condition: state
+          entity_id: !input light_entity
+          state: "on"
+      sequence:
+        - service: timer.cancel
+          target:
+            entity_id: !input timer_entity
+    # wait until motion is no longer detected to start timer
+    - conditions:
+      - condition: trigger
+        id: "motion_off"
+      sequence:
+        - service: timer.start
+          target:
+            entity_id: !input timer_entity
+    # turn light off when timer runs out
+    - conditions:
+      - condition: trigger
+        id: "timer_finished"
+      sequence:
+        - service: light.turn_off
+          target:
+            entity_id: !input light_entity
+    # start timer when light is turned on (manually)
+    - conditions:
+      - condition: trigger
+        id: "light_on"
+      sequence:
+        - service: timer.start
+          target:
+            entity_id: !input timer_entity
+    # cancel timer when light is turned off (manually)
+    - conditions:
+      - condition: trigger
+        id: "light_off"
+      sequence:
+        - service: timer.cancel
+          target:
+            entity_id: !input timer_entity
